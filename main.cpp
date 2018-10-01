@@ -2,62 +2,60 @@
 #include <vector>
 #include <cassert>
 
-const uint8_t k1ByteMarker = 0b00000000;
-const uint8_t k2ByteMarker = 0b11000000;
-const uint8_t k3ByteMarker = 0b11100000;
-const uint8_t k4ByteMarker = 0b11110000;
+const uint8_t kMarkers[] = {
+    0b00000000,
+    0b11000000,
+    0b11100000,
+    0b11110000,
+};
 
-const uint8_t k1ByteMask =   0b10000000;
-const uint8_t k2ByteMask =   0b11100000;
-const uint8_t k3ByteMask =   0b11110000;
-const uint8_t k4ByteMask =   0b11111000;
+const uint8_t kMasks[] {
+    0b10000000,
+    0b11100000,
+    0b11110000,
+    0b11111000,
+};
 
-const uint32_t k1ByteMaxCodePoint = 0x007F;
-const uint32_t k2ByteMaxCodePoint = 0x07FF;
-const uint32_t k3ByteMaxCodePoint = 0xFFFF;
-const uint32_t k4ByteMaxCodePoint = 0x10FFFF;
+const uint32_t kMaxCodePoints[] = {
+    0x007F,
+    0x07FF,
+    0xFFFF,
+    0x10FFFF,
+};
 
-const uint8_t k1ByteFirstByteCapacity = 7;
-const uint8_t k2ByteFirstByteCapacity = 5;
-const uint8_t k3ByteFirstByteCapacity = 4;
-const uint8_t k4ByteFirstByteCapacity = 3;
+const uint8_t kFirstByteCapacities[] = {
+    7,
+    5,
+    4,
+    3,
+};
 
-const uint8_t k1ByteCapacity = 7;
-const uint8_t k2ByteCapacity = 11;
-const uint8_t k3ByteCapacity = 16;
-const uint8_t k4ByteCapacity = 21;
+const uint8_t kCapacities[] = {
+    7,
+    11,
+    16,
+    21,
+};
 
 const uint8_t kResidualByteMarker = 0b10000000;
 const uint8_t kResidualByteMask =   0b11000000;
 const uint8_t kResidualByteCapacity = 6;
-
-
-
-// Unicode standard restriction: UTF-32 cannot encode
-// code points greater than U+10FFFF
-const uint32_t kMaxCodePoint = k4ByteMaxCodePoint;
 
 std::vector<uint32_t> utf8_to_utf32(const std::vector<uint8_t> &str) {
     std::vector<uint32_t> result;
     size_t idx = 0;
     while(idx < str.size()) {  // Loop that extracts one symbol per iter
         uint32_t wide_symbol;
-        uint8_t length;
-        if ((str[idx] & k4ByteMask) == k4ByteMarker) {
-            length = 4;
-            wide_symbol = str[idx] & ~k4ByteMask;
-        } else if ((str[idx] & k3ByteMask) == k3ByteMarker) {
-            length = 3;
-            wide_symbol = str[idx] & ~k3ByteMask;
-        } else if ((str[idx] & k2ByteMask) == k2ByteMarker) {
-            length = 2;
-            wide_symbol = str[idx] & ~k2ByteMask;
-        } else {
-            if ((str[idx] & k2ByteMask) != k1ByteMarker) {
-                throw std::runtime_error("Unknown starting byte");
+        uint8_t length = 0;
+        for (uint8_t bytes = 0; bytes < sizeof(kMasks) / sizeof(kMasks[0]); ++bytes) {
+            if ((str[idx] & kMasks[bytes]) == kMarkers[bytes]) {
+                length = bytes + 1;
+                wide_symbol = str[idx] & ~kMasks[bytes];
+                break;
             }
-            length = 1;
-            wide_symbol = str[idx] & ~k1ByteMask;
+        }
+        if (length == 0) {
+            throw std::runtime_error("Unknown starting byte");
         }
         if (idx + length > str.size()) {
             throw std::runtime_error("String too short");
@@ -87,34 +85,20 @@ std::vector<uint8_t> utf32_to_utf8(const std::vector<uint32_t> &str) {
     std::vector<uint8_t> result;
     for (size_t idx = 0; idx < str.size(); ++idx) {
         uint32_t wide_symbol = str[idx];
-        uint8_t length, remaining_bits;
-        if (wide_symbol > kMaxCodePoint) {
-            throw std::runtime_error("Unsupported symbol");
+        uint8_t length = 0;
+        uint8_t remaining_bits;
+        for (uint8_t bytes = 0; bytes < sizeof(kCapacities) / sizeof(kCapacities[0]); ++bytes) {
+            if (wide_symbol <= kMaxCodePoints[bytes]) {
+                uint8_t byte = kMarkers[bytes];
+                length = bytes + 1;
+                remaining_bits = kCapacities[bytes] - kFirstByteCapacities[bytes];
+                byte |= (uint8_t) substr(wide_symbol, remaining_bits, kCapacities[bytes] - 1);
+                result.push_back(byte);
+                break;
+            }
         }
-        if (wide_symbol <= k1ByteMaxCodePoint) {
-            uint8_t byte = k1ByteMarker;
-            length = 1;
-            remaining_bits = 0;
-            byte |= (uint8_t) wide_symbol;
-            result.push_back(byte);
-        } else if (wide_symbol <= k2ByteMaxCodePoint) {
-            uint8_t byte = k2ByteMarker;
-            length = 2;
-            remaining_bits = k2ByteCapacity - k2ByteFirstByteCapacity;
-            byte |= (uint8_t) substr(wide_symbol, remaining_bits, k2ByteCapacity - 1);
-            result.push_back(byte);
-        } else if (wide_symbol <= k3ByteMaxCodePoint) {
-            uint8_t byte = k3ByteMarker;
-            length = 3;
-            remaining_bits = k3ByteCapacity - k3ByteFirstByteCapacity;
-            byte |= (uint8_t) substr(wide_symbol, remaining_bits, k3ByteCapacity - 1);
-            result.push_back(byte);
-        } else {
-            uint8_t byte = k4ByteMarker;
-            length = 4;
-            remaining_bits = k4ByteCapacity - k4ByteFirstByteCapacity;
-            byte |= (uint8_t) substr(wide_symbol, remaining_bits, k4ByteCapacity - 1);
-            result.push_back(byte);
+        if (length == 0) {
+            throw std::runtime_error("Unsupported symbol");
         }
         for (size_t i = 1; i < length; ++i) {
             uint8_t byte = kResidualByteMarker;
@@ -128,7 +112,11 @@ std::vector<uint8_t> utf32_to_utf8(const std::vector<uint32_t> &str) {
 }
 
 int main() {
-    std::vector<uint8_t> utf8_str = {0xF0, 0x9F, 0x92, 0xAF};
+    std::vector<uint8_t> utf8_str = {0xd0, 0xbf, 0xd1, 0x80, 0xd0, 0xbe, 0xd0, 0xb2, 0xd0, 0xb5, 0xd1, 0x80, 0xd0, 0xba, 0xd0, 0xb0};
+    for (uint8_t i : utf8_str) {
+        std::cout << (uint32_t) i << " ";
+    }
+    std::cout << std::endl;
     std::vector<uint32_t> utf32_str = utf8_to_utf32(utf8_str);
     for (uint32_t i : utf32_str) {
         std::cout << i << " ";
