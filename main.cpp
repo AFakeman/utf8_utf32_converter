@@ -1,6 +1,6 @@
+#include <cassert>
 #include <iostream>
 #include <vector>
-#include <cassert>
 
 const uint8_t kMarkers[] = {
     0b00000000,
@@ -9,7 +9,7 @@ const uint8_t kMarkers[] = {
     0b11110000,
 };
 
-const uint8_t kMasks[] {
+const uint8_t kMasks[]{
     0b10000000,
     0b11100000,
     0b11110000,
@@ -38,94 +38,97 @@ const uint8_t kCapacities[] = {
 };
 
 const uint8_t kResidualByteMarker = 0b10000000;
-const uint8_t kResidualByteMask =   0b11000000;
+const uint8_t kResidualByteMask = 0b11000000;
 const uint8_t kResidualByteCapacity = 6;
 
 std::vector<uint32_t> utf8_to_utf32(const std::vector<uint8_t> &str) {
-    std::vector<uint32_t> result;
-    size_t idx = 0;
-    while(idx < str.size()) {  // Loop that extracts one symbol per iter
-        uint32_t wide_symbol;
-        uint8_t length = 0;
-        for (uint8_t bytes = 0; bytes < sizeof(kMasks) / sizeof(kMasks[0]); ++bytes) {
-            if ((str[idx] & kMasks[bytes]) == kMarkers[bytes]) {
-                length = bytes + 1;
-                wide_symbol = str[idx] & ~kMasks[bytes];
-                break;
-            }
-        }
-        if (length == 0) {
-            throw std::runtime_error("Unknown starting byte");
-        }
-        if (idx + length > str.size()) {
-            throw std::runtime_error("String too short");
-        }
-        for (uint8_t byte = 1; byte < length; ++byte) {
-            if ((str[idx + byte] & kResidualByteMask)
-                            != kResidualByteMarker) {
-                throw std::runtime_error("Invalid residual byte");
-            }
-            wide_symbol = wide_symbol << kResidualByteCapacity;
-            wide_symbol |= str[idx + byte] & ~kResidualByteMask;
-        }
-        result.push_back(wide_symbol);
-        idx += length;
+  std::vector<uint32_t> result;
+  size_t idx = 0;
+  while (idx < str.size()) { // Loop that extracts one symbol per iter
+    uint32_t wide_symbol;
+    uint8_t length = 0;
+    for (uint8_t bytes = 0; bytes < sizeof(kMasks) / sizeof(kMasks[0]);
+         ++bytes) {
+      if ((str[idx] & kMasks[bytes]) == kMarkers[bytes]) {
+        length = bytes + 1;
+        wide_symbol = str[idx] & ~kMasks[bytes];
+        break;
+      }
     }
-    return result;
+    if (length == 0) {
+      throw std::runtime_error("Unknown starting byte");
+    }
+    if (idx + length > str.size()) {
+      throw std::runtime_error("String too short");
+    }
+    for (uint8_t byte = 1; byte < length; ++byte) {
+      if ((str[idx + byte] & kResidualByteMask) != kResidualByteMarker) {
+        throw std::runtime_error("Invalid residual byte");
+      }
+      wide_symbol = wide_symbol << kResidualByteCapacity;
+      wide_symbol |= str[idx + byte] & ~kResidualByteMask;
+    }
+    result.push_back(wide_symbol);
+    idx += length;
+  }
+  return result;
 }
 
 /*
  * Returns a bit sequence in range [from, to].
  */
 uint32_t substr(uint32_t str, uint8_t from, uint8_t to) {
-    return ((str << (31 - to)) >> (31 - to)) >> from;
+  return ((str << (31 - to)) >> (31 - to)) >> from;
 }
 
 std::vector<uint8_t> utf32_to_utf8(const std::vector<uint32_t> &str) {
-    std::vector<uint8_t> result;
-    for (size_t idx = 0; idx < str.size(); ++idx) {
-        uint32_t wide_symbol = str[idx];
-        uint8_t length = 0;
-        uint8_t remaining_bits;
-        for (uint8_t bytes = 0; bytes < sizeof(kCapacities) / sizeof(kCapacities[0]); ++bytes) {
-            if (wide_symbol <= kMaxCodePoints[bytes]) {
-                uint8_t byte = kMarkers[bytes];
-                length = bytes + 1;
-                remaining_bits = kCapacities[bytes] - kFirstByteCapacities[bytes];
-                byte |= (uint8_t) substr(wide_symbol, remaining_bits, kCapacities[bytes] - 1);
-                result.push_back(byte);
-                break;
-            }
-        }
-        if (length == 0) {
-            throw std::runtime_error("Unsupported symbol");
-        }
-        for (size_t i = 1; i < length; ++i) {
-            uint8_t byte = kResidualByteMarker;
-            uint8_t to = remaining_bits - 1;
-            remaining_bits -= kResidualByteCapacity;
-            byte |= (uint8_t) substr(wide_symbol, remaining_bits, to);
-            result.push_back(byte);
-        }
+  std::vector<uint8_t> result;
+  for (size_t idx = 0; idx < str.size(); ++idx) {
+    uint32_t wide_symbol = str[idx];
+    uint8_t length = 0;
+    uint8_t remaining_bits;
+    for (uint8_t bytes = 0;
+         bytes < sizeof(kCapacities) / sizeof(kCapacities[0]); ++bytes) {
+      if (wide_symbol <= kMaxCodePoints[bytes]) {
+        uint8_t byte = kMarkers[bytes];
+        length = bytes + 1;
+        remaining_bits = kCapacities[bytes] - kFirstByteCapacities[bytes];
+        byte |= (uint8_t)substr(wide_symbol, remaining_bits,
+                                kCapacities[bytes] - 1);
+        result.push_back(byte);
+        break;
+      }
     }
-    return result;
+    if (length == 0) {
+      throw std::runtime_error("Unsupported symbol");
+    }
+    for (size_t i = 1; i < length; ++i) {
+      uint8_t byte = kResidualByteMarker;
+      uint8_t to = remaining_bits - 1;
+      remaining_bits -= kResidualByteCapacity;
+      byte |= (uint8_t)substr(wide_symbol, remaining_bits, to);
+      result.push_back(byte);
+    }
+  }
+  return result;
 }
 
 int main() {
-    std::vector<uint8_t> utf8_str = {0xd0, 0xbf, 0xd1, 0x80, 0xd0, 0xbe, 0xd0, 0xb2, 0xd0, 0xb5, 0xd1, 0x80, 0xd0, 0xba, 0xd0, 0xb0};
-    for (uint8_t i : utf8_str) {
-        std::cout << (uint32_t) i << " ";
-    }
-    std::cout << std::endl;
-    std::vector<uint32_t> utf32_str = utf8_to_utf32(utf8_str);
-    for (uint32_t i : utf32_str) {
-        std::cout << i << " ";
-    }
-    std::cout << std::endl;
-    std::vector<uint8_t> new_utf8_str = utf32_to_utf8(utf32_str);
-    for (uint8_t i : new_utf8_str) {
-        std::cout << (uint32_t) i << " ";
-    }
-    std::cout << std::endl;
-    assert(utf8_str == new_utf8_str);
+  std::vector<uint8_t> utf8_str = {0xe2, 0x99, 0xbf, 0xf0, 0x9f, 0x98,
+                                   0x80, 0xf0, 0x9f, 0x98, 0x8d};
+  for (uint8_t i : utf8_str) {
+    std::cout << (uint32_t)i << " ";
+  }
+  std::cout << std::endl;
+  std::vector<uint32_t> utf32_str = utf8_to_utf32(utf8_str);
+  for (uint32_t i : utf32_str) {
+    std::cout << i << " ";
+  }
+  std::cout << std::endl;
+  std::vector<uint8_t> new_utf8_str = utf32_to_utf8(utf32_str);
+  for (uint8_t i : new_utf8_str) {
+    std::cout << (uint32_t)i << " ";
+  }
+  std::cout << std::endl;
+  assert(utf8_str == new_utf8_str);
 }
