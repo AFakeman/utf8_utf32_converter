@@ -2,133 +2,83 @@
 #include <iostream>
 #include <vector>
 
-const uint8_t kMarkers[] = {
-    0b00000000,
-    0b11000000,
-    0b11100000,
-    0b11110000,
-};
+#include "converter.hpp"
 
-const uint8_t kMasks[]{
-    0b10000000,
-    0b11100000,
-    0b11110000,
-    0b11111000,
-};
+const std::vector<uint32_t> correct_utf32_str = {
+    0x42f, 0x20,  0x43b, 0x44e, 0x431, 0x43b, 0x44e,
+    0x20,  0x43a, 0x443, 0x440, 0x438, 0x446};
 
-const uint32_t kMaxCodePoints[] = {
-    0x007F,
-    0x07FF,
-    0xFFFF,
-    0x10FFFF,
-};
+const std::vector<uint8_t> correct_utf8_str = {
+    0b11010000, 0b10101111, 0b100000,   0b11010000, 0b10111011, 0b11010001,
+    0b10001110, 0b11010000, 0b10110001, 0b11010000, 0b10111011, 0b11010001,
+    0b10001110, 0b100000,   0b11010000, 0b10111010, 0b11010001, 0b10000011,
+    0b11010001, 0b10000000, 0b11010000, 0b10111000, 0b11010001, 0b10000110};
 
-const uint8_t kFirstByteCapacities[] = {
-    7,
-    5,
-    4,
-    3,
-};
-
-const uint8_t kCapacities[] = {
-    7,
-    11,
-    16,
-    21,
-};
-
-const uint8_t kResidualByteMarker = 0b10000000;
-const uint8_t kResidualByteMask = 0b11000000;
-const uint8_t kResidualByteCapacity = 6;
-
-std::vector<uint32_t> utf8_to_utf32(const std::vector<uint8_t> &str) {
-  std::vector<uint32_t> result;
-  size_t idx = 0;
-  while (idx < str.size()) { // Loop that extracts one symbol per iter
-    uint32_t wide_symbol;
-    uint8_t length = 0;
-    for (uint8_t bytes = 0; bytes < sizeof(kMasks) / sizeof(kMasks[0]);
-         ++bytes) {
-      if ((str[idx] & kMasks[bytes]) == kMarkers[bytes]) {
-        length = bytes + 1;
-        wide_symbol = str[idx] & ~kMasks[bytes];
-        break;
-      }
-    }
-    if (length == 0) {
-      throw std::runtime_error("Unknown starting byte");
-    }
-    if (idx + length > str.size()) {
-      throw std::runtime_error("String too short");
-    }
-    for (uint8_t byte = 1; byte < length; ++byte) {
-      if ((str[idx + byte] & kResidualByteMask) != kResidualByteMarker) {
-        throw std::runtime_error("Invalid residual byte");
-      }
-      wide_symbol = wide_symbol << kResidualByteCapacity;
-      wide_symbol |= str[idx + byte] & ~kResidualByteMask;
-    }
-    result.push_back(wide_symbol);
-    idx += length;
-  }
-  return result;
+void test_correct_8_32_conversion() {
+  const std::vector<uint32_t> test_utf32_str =
+      Converter::utf8_to_utf32(correct_utf8_str);
+  assert(test_utf32_str == correct_utf32_str);
 }
 
-/*
- * Returns a bit sequence in range [from, to].
- */
-uint32_t substr(uint32_t str, uint8_t from, uint8_t to) {
-  return ((str << (31 - to)) >> (31 - to)) >> from;
+void test_correct_32_8_conversion() {
+  const std::vector<uint8_t> test_utf8_str =
+      Converter::utf32_to_utf8(correct_utf32_str);
+  assert(test_utf8_str == correct_utf8_str);
 }
 
-std::vector<uint8_t> utf32_to_utf8(const std::vector<uint32_t> &str) {
-  std::vector<uint8_t> result;
-  for (size_t idx = 0; idx < str.size(); ++idx) {
-    uint32_t wide_symbol = str[idx];
-    uint8_t length = 0;
-    uint8_t remaining_bits;
-    for (uint8_t bytes = 0;
-         bytes < sizeof(kCapacities) / sizeof(kCapacities[0]); ++bytes) {
-      if (wide_symbol <= kMaxCodePoints[bytes]) {
-        uint8_t byte = kMarkers[bytes];
-        length = bytes + 1;
-        remaining_bits = kCapacities[bytes] - kFirstByteCapacities[bytes];
-        byte |= (uint8_t)substr(wide_symbol, remaining_bits,
-                                kCapacities[bytes] - 1);
-        result.push_back(byte);
-        break;
-      }
-    }
-    if (length == 0) {
-      throw std::runtime_error("Unsupported symbol");
-    }
-    for (size_t i = 1; i < length; ++i) {
-      uint8_t byte = kResidualByteMarker;
-      uint8_t to = remaining_bits - 1;
-      remaining_bits -= kResidualByteCapacity;
-      byte |= (uint8_t)substr(wide_symbol, remaining_bits, to);
-      result.push_back(byte);
-    }
+void test_incorrect_start_symbol() {
+  bool thrown = false;
+  std::vector<uint8_t> utf8_str = {0b11111000};
+  try {
+    std::vector<uint32_t> utf32_str = Converter::utf8_to_utf32(utf8_str);
+  } catch (const std::runtime_error &e) {
+    assert(e.what() == std::string("Unknown starting byte"));
+    thrown = true;
   }
-  return result;
+}
+
+void test_string_too_short() {
+  bool thrown = false;
+  std::vector<uint8_t> utf8_str = {0b11110000};
+  try {
+    std::vector<uint32_t> utf32_str = Converter::utf8_to_utf32(utf8_str);
+  } catch (const std::runtime_error &e) {
+    assert(e.what() == std::string("String too short"));
+    thrown = true;
+  }
+  assert(thrown == true);
+}
+
+void test_invalid_residual_byte() {
+  bool thrown = false;
+  std::vector<uint8_t> utf8_str = {0b11000000, 0b00000000};
+  try {
+    std::vector<uint32_t> utf32_str = Converter::utf8_to_utf32(utf8_str);
+  } catch (const std::runtime_error &e) {
+    assert(e.what() == std::string("Invalid residual byte"));
+    thrown = true;
+  }
+  assert(thrown == true);
+}
+
+void test_unsupported_symbol() {
+  bool thrown = false;
+  std::vector<uint32_t> utf32_str = {0xFFFFFF};
+  try {
+    std::vector<uint8_t> utf8_str = Converter::utf32_to_utf8(utf32_str);
+  } catch (const std::runtime_error &e) {
+    assert(e.what() == std::string("Unsupported symbol"));
+    thrown = true;
+  }
+  assert(thrown == true);
 }
 
 int main() {
-  std::vector<uint8_t> utf8_str = {0xe2, 0x99, 0xbf, 0xf0, 0x9f, 0x98,
-                                   0x80, 0xf0, 0x9f, 0x98, 0x8d};
-  for (uint8_t i : utf8_str) {
-    std::cout << (uint32_t)i << " ";
-  }
-  std::cout << std::endl;
-  std::vector<uint32_t> utf32_str = utf8_to_utf32(utf8_str);
-  for (uint32_t i : utf32_str) {
-    std::cout << i << " ";
-  }
-  std::cout << std::endl;
-  std::vector<uint8_t> new_utf8_str = utf32_to_utf8(utf32_str);
-  for (uint8_t i : new_utf8_str) {
-    std::cout << (uint32_t)i << " ";
-  }
-  std::cout << std::endl;
-  assert(utf8_str == new_utf8_str);
+  test_correct_8_32_conversion();
+  test_correct_32_8_conversion();
+  test_incorrect_start_symbol();
+  test_string_too_short();
+  test_invalid_residual_byte();
+  test_unsupported_symbol();
+  return 0;
 }
